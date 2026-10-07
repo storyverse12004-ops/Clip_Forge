@@ -1,0 +1,150 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PlanTier {
+  FREE
+  PRO
+}
+
+enum ProjectStatus {
+  INGESTING
+  TRANSCRIBING
+  FINDING_VIRAL_MOMENTS
+  REFRAMING
+  READY
+  FAILED
+}
+
+enum ReframeMode {
+  SPEAKER_TRACK
+  SPLIT_SCREEN
+  BLURRED_BG
+}
+
+enum ExportStatus {
+  QUEUED
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  plan          PlanTier       @default(FREE)
+  monthlyQuota  Int            @default(3)
+  videosUsed    Int            @default(0)
+  stripeCustId  String?        @unique
+  projects      Project[]
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Project {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  sourceType      String        // "UPLOAD" | "YOUTUBE"
+  sourceUrl       String
+  durationSeconds Int
+  videoSizeMb     Float
+  status          ProjectStatus @default(INGESTING)
+  thumbnailUrl    String?
+  transcripts     Transcript[]
+  clips           Clip[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Transcript {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fullText        String
+  wordsJson       Json     // [{ "word": "Stop", "start": 0.12, "end": 0.45, "speaker": "Speaker 1" }]
+  detectedLang    String   @default("en")
+  speakerCount    Int      @default(1)
+  createdAt       DateTime @default(now())
+}
+
+model Clip {
+  id              String            @id @default(cuid())
+  projectId       String
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  hookText        String
+  viralityScore   Int               // 0 - 100
+  reasoning       String
+  startTimeMs     Int
+  endTimeMs       Int
+  emotionalPeak   String
+  reframeMode     ReframeMode       @default(SPEAKER_TRACK)
+  captionPreset   String            @default("HORMOZI")
+  captionFontSize Int               @default(24)
+  captionPosition String            @default("BOTTOM_THIRD")
+  silenceCut      Boolean           @default(true)
+  backgroundMusic String            @default("None")
+  duckingPercent  Int               @default(80)
+  thumbnailUrl    String?
+  metadata        PlatformMetadata?
+  exports         Export[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model PlatformMetadata {
+  id            String   @id @default(cuid())
+  clipId        String   @unique
+  clip          Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  titles        Json     // 3 curated hook titles (max 60 chars)
+  tiktokDesc    String   // Max 150 chars + CTA + 3-5 tags
+  instagramDesc String   // Max 300 chars, line breaks, CTA, 8-12 tags
+  youtubeDesc   String   // Max 100 chars + keywords + #Shorts
+  broadTags     Json     // 3 tags
+  nicheTags     Json     // 5 tags
+  trendingTags  Json     // 2-3 format tags
+  hookOverlay   String
+  cta           String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Export {
+  id              String       @id @default(cuid())
+  clipId          String
+  clip            Clip         @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  quality         String       // "480p" | "720p" | "1080p" | "4K"
+  format          String       @default("MP4") // "MP4" | "MOV"
+  fps             Int          @default(30)
+  bitratePreset   String       @default("Balanced")
+  burnedCaptions  Boolean      @default(true)
+  removeWatermark Boolean      @default(false)
+  includeSrt      Boolean      @default(true)
+  status          ExportStatus @default(QUEUED)
+  progress        Int          @default(0)
+  fileUrl         String?
+  sizeBytes       BigInt?
+  renderTimeSec   Float?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model Subscription {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubId      String   @unique
+  status           String   // "active" | "canceled" | "past_due"
+  plan             PlanTier @default(PRO)
+  currentPeriodEnd DateTime
+  createdAt        DateTime @default(now())
+}
